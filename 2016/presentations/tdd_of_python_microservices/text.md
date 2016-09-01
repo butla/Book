@@ -310,65 +310,70 @@ Even if your team knows how to do TDD, they sometimes want to cut corners, which
 for anyone in the long run.
 Luckily, there are ways to keep them (and you, and me) in line.
 
-### Measuring code coverage (TODO)
-A propos pokrycia w service testach:
-Możliwość liczenia pokrycia testami poza procesem się bardzo przydaje, żeby oszczędzić roboty jednocześnie trzymając wysoką jakość.
-Czasem bez sensu duplikować wolne testy w szybkich, skoro tylko wolne dają jakąś dozę pewności (testy redisa w pydasie). Ale jeśli wolne przechodzą, to umożliwia to posiadanie szybkich z jakimiś założeniami w mockach. 
-
-
-.coveragerc z PyDASa
+### Measuring code coverage
+Let's take a look at my recommended minimal `.coveragerc` file
+(configuration for python "coverage" library)
 
 ```Ini
-[report]
-fail_under = 100
 [run]
-source = data_acquisition
+source = your_project_source_directory
+; This enables (with a few other tricks documented at
+; http://coverage.readthedocs.io/en/coverage-4.0.3/subprocess.htm and done in PyDAS)
+; test coverage measurement from multiple processes.
+; That is, when Mountepy runs the tested service and requests are fired against it,
+; the coverage information from the code hit when handling the requests will be added to overall
+; coverage data.
+; Now there's no need to duplicate scenarios from service tests into unit tests
+; for coverage measurement.
 parallel = true
+
+[report]
+; All code needs to be tested. Especially in a dynamic language like Python,
+; which does almost no static validation.
+; If even one untested statement is written, the tests will fail.
+; With parallel coverage, there's no need to write meaningless tests of glue-code that run
+; almost 100% on mocks to ramp up to absolute coverage,
+; because the code will be hit by the service test. 
+fail_under = 100
 ```
-
-http://coverage.readthedocs.io/en/coverage-4.0.3/subprocess.html
-
-Musi być pokryty cały kod. Jak nie ma, to fail.
-
-W Pythonie przydaje się mieć chociaż 100, żeby mieć przekonanie, że nie zrypało się gdzieś wywołań.
-
-Pokrycie się przydaje, żeby sprawdzić, czy nie zapomnieliśmy o żadnej linii. Niby robiąc TDD powinniśmy i tak pisać najpierw test, potem kod. Czyli fragment kodu powinien powstawać tylko, jak mamy na niego test. Ale czasem chcemy pracować trochę szybciej i dodajemy jakiegoś "ifa" w kodzie zauważając, że jest sytuacja w której coś może się wywalić. Np. chcąc zrealizować funkcjonalność dla jednego testu piszę kod, który może rzucić wyjątek. Dodaję try/except. Pokrycie przypomni mi, że nie przetestowałem tego przypadku.
-
-Parallel - testy serwisowe też będą mierzyły pokrycie.
-Nawet jak Pydas odpalał jeszcze inne rzeczy przez multiprocessing.
 
 ### Mandatory static code analysis
-Wyskoczy coś w pylincie to bum.
+To keep code quality high it's good to use static code analysis tool like Pylint.
+To keep it even higher, any meaningful complaints can cause the test suite to fail.
 
-Można false-positivy oznaczać w liniach.
+In PyDAS, I've used [Tox](https://tox.readthedocs.io) to automate test runs.
+Below is an abbreviated version of Tox configuration (`tox.ini`).
 
-tox.ini (simplified) https://tox.readthedocs.io
-
-```
+```Ini
 [testenv]
 commands =
+    ; Pylint is run before tests.
+    ; If it returns any output, which happens when it finds errors, the whole Tox run fails.
+    /bin/bash -c "pylint data_acquisition --rcfile=.pylintrc"
+    ; Running the tests with coverage measurement.
     coverage run -m py.test tests/
     coverage report -m
-    /bin/bash -c "pylint data_acquisition --rcfile=.pylintrc"
 ```
 
+Remember that Pylint's config can be tweaked to lower its standards,
+which can be too high at times.
+Specific code lines can also be annotated to ignore a Pylint check if you're absolutely 
+sure that what you're doing is the best way and Pylint is wrong to scold you.
 
 ## Contract tests with Swagger and Bravado
-Dodatkowe zabezpieczenie przy pracy z ludźmi i mikroserwisami.
+Sometimes slight changes in code, like adding a field to some unremarkable data container type
+or adding a small "if" in some REST controller can accidentally:
 
-Nawet mając takie testy, jak sprawić, żeby zmiana w jednym serwisie nad którą ktoś
-niezależnie pracuje (i puszcza na nią testy) nie zepsuła jakiś interakcji z serwisami?
-Even if you have a way to do TDD, maybe not everyone on the teamwill follow it, making life harder
-for everyone.
+* change the expectation a service has of its functions' parameters or
+* change the shape (schema) of the data returned by the service.
 
-Powinny trzymać w ryzach nasz kontrakt.
-
-Zapewniać, że przez przypadek nie zmieniliśmy.
+Those changes breach the contract the service has with the outside world,
+and can cause bugs in a microservice system, so precausions are necessary.
+They come in the form of contract tests.
 
 ### Swagger
-[Swagger](http://swagger.io/) is an interface definition language. Will serve as contract description.
-Now also called OpenAPI a standard under the wings of Linux Foundation.
-Has many tools (online editors, code generators), integrations with different languages.
+[Swagger](http://swagger.io/) is an interface definition language.
+It will serve us as a contract definition language description.
 
 An example Swagger document written in YAML format (JSON also happens) is below.
 
@@ -400,24 +405,18 @@ paths:
                 type: boolean
 ```
 
-It defines a HTTP endpoint on path /person/{id} on the service's location (e.g. http://example.com/person/zablarg13).
+It defines a HTTP endpoint on path /person/{id} on the service's location
+(e.g. http://example.com/person/zablarg13).
 This endpoint will respond to a GET request.
-It has one parameter - id - that is passed in the path and is a string.
+It has one parameter, `id`, that is passed in the path and is a string.
 The endpoint can respond with a message with status code 200 contaning the representation of
-a person's data - and object with their name as string and the information if they are single (boolean).
+a person's data - and object with their name as string and the information if they are single.
 
 ### Contract/service tests
-Contract (Swagger API description) should be separate from code so that when patches break the
-contract we can detect it.
-Some solutions generate Swagger from code which would have the bonus of documenting the API
-(also there with a separate, static contract), but it would be pointless from the perspective
-of our contract tests.
-
 [Bravado](https://github.com/Yelp/bravado) is a library that can dynamically create client
 objects for a service based on its Swagger contract.
-
-It can automatically validate the types (schemas) of both parameters and the values returned from
-services.
+It can do contract tests by automatically validating the types (schemas) of both parameters
+and the values returned from services.
 Can verify HTTP status codes. Status code and response schema combinations that don't exist
 in Swagger are treated as invalid, e.g. if we can return a Person object with code 200 and
 an empty body with code 204, returning a Person with 204 will cause an error.
@@ -425,13 +424,19 @@ an empty body with code 204, returning a Person with 204 will cause an error.
 It's worth noting that Bravado can be configured to enable or disable different validation checks.
 This is helpful in testing the unhappy path through your service.
 
-
-Bravado used In service tests: instead of “requests”
-
-(TODO comments in the code!)
-
 ```python
+# Contract is in a file separate from code
+# (definitely not generated from it, which is sometimes done),
+# so that when changes break the contract it can be detected.
+@pytest.fixture()
+def swagger_spec():
+    with open('api_spec.yaml') as spec_file:
+        return yaml.load(spec_file)
+
 def test_contract_service(swagger_spec, our_service):
+    # Bravado client will be used instead of "requests" to call the service.
+    # Service tests using Bravado clients double as contract tests with practically
+    # no added effort except for maintaining the Swagger spec.
     client = SwaggerClient.from_spec(
         swagger_spec,
         origin_url=our_service.url))
@@ -447,8 +452,6 @@ def test_contract_service(swagger_spec, our_service):
 
     assert resp_object.status == 'whatever'
 ```
-
-Service tests now double as contract tests with little effort.
 
 ### Contract/unit tests
 In unit tests (they take less time then service ones): https://github.com/butla/bravado-falcon
