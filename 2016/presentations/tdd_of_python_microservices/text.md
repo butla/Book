@@ -105,73 +105,98 @@ zmian (które ludzie robią) jednocześnie i niezależnie od siebie.
 Rozwiązanie tych problemów przedstawiam w artykule.
 
 
-## Framework-agnostic service tests
-### Their place in TDD
-To have TDD, and thus a maintainable microservice project, we need tests that the entirety
-of a single application, the "service tests" (term used in "Building Microservices").
-W książcę "Test-Driven Development with Python" takie testy, co prawda w kontekście
-tradycyjnych aplikacji webowych, nazywane są testami funkcjonalnymi
-i są niezbędnym elementem prawdziwego TDD z podwójną pętlą (inaczej outside-in TDD)
+## Service tests
+### Their place in TDD (OK)
+To have TDD and thus a maintainable microservice project we need tests that can validate
+the entirety of a single application - the "service tests".
+This term is used in "Building Microservices", but Harry Percival calls them (although in the
+context of traditional, monolithic web applications) "functional tests" in
+"Test-Driven Development with Python".
+Those functional tests are essential for implementing the "real TDD", that is the "double loop"
+or "outside-in" TDD (shown on diagram below).
 
 ![](images/tdd_cycle.png "TDD cycle")
 
-Ten obrazek, który zdawkowo tłumaczy całe TDD wzięty jest ze wspomnianej chwilę wcześniej
-książki Harrego Percivala.
+This image (taken from Percival's book) succintly explains the test-driven development process.
 
-Widzimy, że tworzenie każdego nowego feature'a powinno zaczynać się od tworzenia testu
-funkcjonalnego (serwisowego).
-To też sprawdzenie, czy Pythonowy kod naprawdę działa, bo czasem zdażają się rażące
-błędy, które nie przeszłyby kompilacji w statycznie typowanym języku
-(nie mówię, że wolę typowane)
+Adding each new application feature should start with a functional (service) test.
+This kind of verification is necessary to check if units of code work together as planned.
+It's important to remember that as service tests take longer to run and are more complex
+than unit tests, they should only be used to cover a few critital code paths.
+Full validation of the application's logic (code coverage) should be achieved with unit tests
+(but as shown later on, unit tests don't have to duplicate the same cases that are 
+covered by service tests).
 
-Należy jednak pamiętać, że nie można przesadzić z testami funkcjonalnymi i powinny one
-sprawdzać tylko krytyczne ścieżki i integrację pomiędzy unitami.
-Dokładne pokrycie logiki dalej przez unit testy.
+### Their place in microservice tests (OK)
+Service tests are the thing that says whether an application will not just crash on start
+after you deploy it.
+They can do that because they examine a "living" and "authentic" process of an application.
+Authenticity in this case means running the process like it would run in a production
+environment, with no special test flags, no fake data base clients, etc.
+The application under test should "have no idea" that it's not in a "real" environment.
 
-### Their place in microservice tests
-Service tests are the thing that say whether an application will actually not crash on start.
-Robi to dzięki testowanie całego żyjącego procesu aplikacji, bez żadnych specjalnych
-lokalnych flag, czy fake'ów zastępujących prawdziwe klienty baz danych.
-Aplikacja nie powinna wiedzieć, że nie jest na produkcji.
-(jak to zrobić w kolejnej sekcji).
-
-Dzięki temu testy są odizolowane od całego środowiska i mogą być puszczane na maszynach
-deweloperskich i w CI.
-Każdy może puszczać je niezależnie, przez co development różnych feature'ów w różnych
-miejscach może iść równolegle.
+With these properties, a test suite can run locally, in isolation from the production (or staging)
+environment.
+It can be launched on a development or a CI (Continuous Integration) machine.
+This allows for parallel development of multiple microservices by multiple teams
 
 In his presentation about testing microservices, Martin Fowler places service tests
-(which he calls out-of-process component tests) in the middle of the piramid.
+(which he calls out-of-process component tests) in the middle of the tests pyramid.
 
 ![](images/test_pyramid.png "Microservice test pyramid")
 
+The general idea is that the higher you get in the pyramid, the tests:
+
+* become more complex and hard to maintain,
+* have greater response time (run longer),
+* should be fewer.
+
+All of those kinds of tests are important for a microservice-based system, but due to limited
+space I can't get into detail about all of them.
+Anyhow, if all services have a good suit of unit and service tests, then each should behave
+like we wanted it to, so there's a good chance that the whole system will work fine...
+But in reality we still need end-to-end tests to check for unexpected errors that sometimes
+happen (so they surely will eventually happen) when integrating the entire platform in a
+production-like (or the actual production) environment.
+
+Nevertheless, even inroducing TDD with unit and service tests alone will greatly improve
+your development process, so let's move on.
+
+----------------------------------------------
+
 Jednostkowe to wiadomo, testują jednostkę (klasę, funkcję).
+It's even more important in a dynamic language like Python in which we get almost no static
+syntax checking, and sometimes even glaring code mistakes can slip by.
+
 Zintegrowane to taki trochę unit, ale używający prawdziwych zasobów (jak serwicowe).
 Np. testy klasy repozytorium gadającego z prawdziwą bazą danych.
+
 End-to-end testują całą zdeployowaną platformę tak, jakby korzystał z niej docelowy klient
 (można nawet testować na produkcji).
+
 Eksploracyjne już nie są zautomatyzowane (wszystkie inne muszą być!) i polegają na ludzkiej
 ingenuity, żeby znaleźć luki w systemie.
 Wszystkie te są bardzo ważne, ale nie mam czasu bardziej się w nie zagłębiać.
 
-Jeśli wszystkie pojedyncze aplikacje mają testy serwisowe, to każda z osobna powinna działać
-dobrze (potem zobaczymy, że nie jest tak do końca), czyli jest duża szansa, że cała platforma
-będzie w porzo.
-Potrzebne są e2e, żeby to naprawdę sprawdzić, ale cóż, ni ma miejsca i dużej ekspertyzy.
+------------------------------------------------
 
 ### Necessary tools
-Żeby mieć testy serwisowe mogące chodzić lokalnie potrzeba jakoś wystawić dla serwisu
-runtime dependencies, a więc:
+To have local service tests, the service's runtime dependencies must somehow be satisfied.
+Assuming we're building HTTP microservices, the dependencies most probably are:
 
-* bazy danych (i ewentualnie jakieś inne aplikacje)
-* pozostałe serwisy platformy, które wykorzystuje (pod tą kategorię można też podciągnąć
-  jakiekolwiek aplikacje HTTP)
+* data bases
+* other microservices (or any other HTTP applications)
 
-Bazy danych można ogarnąć na kilka sposobów:
-Normally - a tiresome setup (a chcemy móc po prostu odpalać testy)
-Verified Fakes - rarely seen. Wymagają jakiegoś przygotowania. Co to?
-Docker - just create everything you need as containers. A while ago only for linux, but
-now support is starting on windowns and Mac.
+Data bases can be handled a few ways in tests:
+
+* Naively - just by installing on the machine running the tests.
+  This is tiresome and unwieldy.
+  Development of every microservice would either require a large manual setup or installation
+  scripts that can require a lot of work to maintain.
+  Also if someone works on a few projects they'll get a lot of clutter on their OS.
+* with Verified Fakes - rarely seen. Wymagają jakiegoś przygotowania. Co to?
+* **with Docker** - just create everything you need as containers. A while ago only for linux, but
+  now support is starting on windowns and Mac.
 
 O ile bazy dla jednej aplikacji dałoby się wystawić, to pozostałe
 serwisy ciągną za sobą ich zależności, aż w końcu trzeba by wystawiać całą platformę na
@@ -359,6 +384,8 @@ No, czyli testy wychodzą szybkie, a jak są szybkie, to ludzie się cieszą, fa
 jakiś zysk z posiadania testów.
 Jak by były za wolne to i tak ludzie nie chcieli by ich puszczać, więc cały wysiłek
 w nie włożony szedł by na marne.
+
+Te testy są framework-agnostic.
 
 Before ending the topic of service tests, a few words of warning.
 When a test fails in Pytest, all of it's output is printed in addition to the test stacktrace.
@@ -559,8 +586,7 @@ Ale to jeszcze nie zapewnia sukcesu całemu projektowi.
 
 There are more important factors of a success with microservice project that I didn't have
 the time to cover:
-* end-to-end tests - check for unexpected errors that happen when integrating the entire platform
-  in a production-like (or just the production) environment. Those errors will eventually happen.
+* end-to-end tests - 
   That's why they are in the Fowler's testing pyramid.
 * performance tests - trzeba trzymać jakiś poziom przepustowości, żeby obsłużyć klientów (to jedno),
   a drugie, że niektóre zmiany mogą drastycznie zmniejszyć performance - trzeba tego pilnować.
@@ -569,6 +595,7 @@ the time to cover:
 * monitoring of services and infrastructure
 
 ## Sources (OK)
+Gary Bernhardt. [Fast Test, Slow Test](https://youtu.be/RAxiiRPHS9k)
 Sam Newman. Building Microservices. O'Reilly Media, Inc., February 10, 2015.
 Harry J.W. Percival. Test-Driven Development with Python. O'Reilly Media, Inc., June 19, 2014.
 martinfowler.com ["Microservice Testing"](http://martinfowler.com/articles/microservice-testing/)
