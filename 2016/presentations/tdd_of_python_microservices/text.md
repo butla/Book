@@ -1,6 +1,6 @@
 # TDD of Python microservices - Michał Bultrowicz
 
-## Abstract (OK)
+## Abstract
 To have a successful microservice-based project you might want to start testing early on,
 shorten the engineering cycles, and provide a more sane workplace for the developers.
 Test-driven development (TDD) allows you to have that.
@@ -19,7 +19,7 @@ all web or network services.
 
 
 ## Service tests
-### Their place in TDD (OK)
+### Their place in TDD
 To have TDD and thus a maintainable microservice project we need tests that can validate
 the entirety of a single application - the "service tests".
 This term is used in "Building Microservices", but Harry Percival calls them (although in the
@@ -40,7 +40,7 @@ Full validation of the application's logic (code coverage) should be achieved wi
 (but as shown later on, unit tests don't have to duplicate the same cases that are 
 covered by service tests).
 
-### Their place in microservice tests (OK)
+### Their place in microservice tests
 Service tests are the thing that says whether an application will not just crash on start
 after you deploy it.
 They can do that because they examine a "living" and "authentic" process of an application.
@@ -82,40 +82,68 @@ Assuming we're building HTTP microservices, the dependencies most probably are:
 * data bases
 * other microservices (or any other HTTP applications)
 
-Data bases can be handled a few ways in tests:
+#### Handling data bases
+*Naively* - just by installing on the machine running the tests.
+This is tiresome and unwieldy.
+Development of every microservice would either require long manual setup or
+maintaining installation scripts (what can also require a lot of work).
+Also if someone works on a few projects they'll get a lot of junk on their OS.
 
-* Naively - just by installing on the machine running the tests.
-  This is tiresome and unwieldy.
-  Development of every microservice would either require a large manual setup or installation
-  scripts that can require a lot of work to maintain.
-  Also if someone works on a few projects they'll get a lot of clutter on their OS.
-* with Verified Fakes - rarely seen. Wymagają jakiegoś przygotowania. Co to?
-* **with Docker** - just create everything you need as containers. A while ago only for linux, but
-  now support is starting on windowns and Mac.
+*Verified Fakes* are test doubles of some system (let's say a data base) that are created
+by the maintainers (or other contributors) of said system.
+They are also tested (verified) to ensure that they behave like the real version during tests.
+They can make tests faster and easier to set up, but require effort to develop, and since time
+is a precious resource, are rarely seen in the real world.
 
-O ile bazy dla jednej aplikacji dałoby się wystawić, to pozostałe
-serwisy ciągną za sobą ich zależności, aż w końcu trzeba by wystawiać całą platformę na
-jednej maszynie, co nie dość, że nieporęczne, to często niemożliwe.
-But HTTP services can be mocked (or stubbed) out for service tests.
-There are a few solutions, the ones I came across with:
+Using *Docker* is my preferred approach. With it almost every application can be downloaded as an
+image and run as a container in a uniform way.
+Without messy or convoluted installation processes.
+Although a while ago it was only available for linux, now it starts to support Windows and Mac.
 
-* WireMock - odpalane jako niezależny proces. Wychodzi z Javy. Może być konfigurowany po HTTP
-* Pretenders (Python) - można używać jako biblioteki z kodu testów. Nie wydaje się mocno rozwijany.
-* Mountebank - tak jak WireMock, ale więcej funkcjonalności (testy TCP, popsutych wiadomości HTTP)
-  Nie wymaga Javy. Napisane w NodeJS, ale można ściagnąć standalone aplikację. To wybrałem.
+#### Handling other microservices
+The problem here is that if we'd want to simply set up the other services that are required by the 
+service under tests, we would also need to set up their dependencies as well.
+This chain reaction could go on until we had a large chunk (if not all) of the platform on our
+development machine.
+Even if not absolutely cumbersome, this could prove impossible.
 
-Aby wygodnie używać mountebanka w testach napisałem bibliotekę [Mountepy](https://github.com/butla/mountepy).
-Ładnie startuje i stopuje jego proces w testach.
-Ponieważ procesy samych mikroserwisów (aplikacje HTTP) są podobne do Mountebanka, nie jako za darmo
-dostałem też zarządzarkę procesami aplikacji na których wykonywane są testy.
+Fortunately, HTTP services can be mocked (or stubbed) out.
+There are a few solutions (mock servers) I came across that can be configured to start imitating
+HTTP services on selected ports.
+The imitation is about responding to a defined HTTP call, e.g. POST on path /some/path with body
+containing the string "potato", with a specific response, e.g status code 201
+and body containing string "making potateos".
+Those mock servers are:
+
+* *WireMock* is a Java veteran that can run as a standalone application and can be configured with
+HTTP calls.
+* *Pretenders*, a Python library and a server (like WireMock) that can be used from test code.
+It requires manually starting the server before running the tests.
+* *Mountebank* is similar in principal to the previous two, but has more features, including 
+faking TCP services (which can be used to simulate broken HTTP messages).
+It's written in NodeJS, but it can be downloaded as a standalone package not requiring a Node
+installation.
+I chose it as my service mocking solution.
+
+To use Mountebank in tests comfortably and not be required to start it manually before
+tests, I created Mountepy.
+It's a library that gracefully handles starting and stopping Mountebank's process.
+It also handles configuration of HTTP service imitations, which Mountebank refers to as "imposters".
+Since Mountepy required implementation of management logic for a HTTP service process
+(which Mountebank is),
+it also has the feature of controlling the process of the application under tests,
+thus providing a complete solution for framework-agnostic service tests.
 
 ### Test anatomy
-Jako framework testowy zdecydowałem się używać Pytesta, ze względu na jego zwięzłość
-i potężny i komponowalny system fixture'ów, które niebawem pokażę.
-
-Przykładowy test serwisowy może wyglądać jak zwykły, prosty test:
+Because of its conciseness and due to its powerfull and composable fixture system,
+I chose Pytest.
+An example service test created with it can look like any other plain and simple unit test:
 
 ```python
+# Fixtures are test resource objects that are injected into the test by the framework.
+# This test is parameterized with two of them:
+# "our_service", a Mountepy handler of the service under test
+# and "db", a Redis (but it could be any other data base) client.
 def test_something(our_service, db):
     db.put(TEST_DB_ENTRY)
     response = requests.get(
@@ -124,15 +152,12 @@ def test_something(our_service, db):
     assert response.status_code == 200
 ```
 
-The test is parameterized with Pytest (which I have chosen as the test framework) fixtures,
-that is test resource objects: `our_service` (Mountepy handler of the service under test) and `db` (Redis client).
-
-It's quite clear what's happening in the test: some test data is put in the data base (Redis),
+It's quite clear what's happening in the test: some test data is put in the data base,
 the service is called through HTTP, and finally, there's an assertion on the response.
 Such straightforward testing is possible thanks to the power of Pytest fixtures.
 Not only can they parameterize tests, but also other fixtures.
-The two top-level fixtures presented above are themselves composed of other fixtures
-(which gives them a good behavior?) as presented on the diagram below.
+The two top-level ones presented above are themselves composed of others
+(as shown on the diagram below) in order to fine-tune their behavior to our needs.
 
 ![](images/fixtures.svg "Fixture composition")
 
@@ -144,52 +169,47 @@ import docker
 import pytest
 import redis 
 
+# "db" is function scoped, so it will be recreated on each test function.
+# It depends on another fixture - "db_session".
 @pytest.yield_fixture(scope='function')
 def db(db_session):
+    # "yield" statement in "yield fixtures" returns the fixture object to the test.
+    # "db" simply returns the object returned from "db_session".
     yield db_session
+    # Code after "yield" is executed when the tests go outside of the fixture's scope,
+    # in this case - at the end of a test function.
+    # This is the place to write cleanup code for fixtures, no callbacks required.
+    # Here the cleanup means deleting all the data in Redis.
     db_session.flushdb()
 
+# "session" scope means that the object will be created only once for the entire
+# test suit run.
 @pytest.fixture(scope='session')
 def db_session(redis_port):
     return redis.Redis(port=redis_port, db=0)
 
+# This fixture simply returns a port number for Redis, but has the side effect
+# of creating and later destroying a Docker container (with Redis).
+# Thanks to being session-scoped it doesn't need to spawn a new container for each test,
+# thus cutting down the test time.
+# This practice may be looked down upon by people paranoid about test isolation,
+# but if Redis creators did their job well, cleaning the data base in "db" should be enough
+# to start each service test on a clean slate.
 @pytest.yield_fixture(scope='session')
 def redis_port():
     docker_client = docker.Client(version='auto')
+    # Developers don't need to download required images themselves,
+    # they only need to run the tests.
     download_image_if_missing(docker_client)
+    # Creates the container and waits for Redis to start accepting connections.
     container_id, redis_port = start_redis_container(docker_client)
     yield redis_port
     docker_client.remove_container(container_id, force=True)
 ```
 
-`db` is function scoped, so it will be recreated on each test function.
-To czyści bazę, ale nie tworzy jej on nowa.
-Samo czyszczenie zrobione jest dzięki `yield_fixture`.
-`yield` returns the resource object to the test, but the control later returns to the fixture function
-(when this happens is determined by the fixture's scope).
-This is an excellent way for coding clean-up logic without any callbacks.
-Bierze obiekt kliencki bazy od `db_session`, który jest tworzony co sesję, czyli raz na odpalenie całego test suit.
+...and next, `our_service`:
 
-To create a redis client, there needs to a living Redis instance.
-`redis_port` is a session-scoped fixture returning a port number for a Redis, but under the hood
-it creates and later destroys the whole Redis Docker container.
-`start_redis_container` startuje kontener Redisa i czeka, aż on w środku zacznie odpowiadać na requesty
-(fajnie by było, jakby był na coś takiego wbudowany mechanizm na czekanie na gotowość kontenera
-w samym Dockerze).
-Kod tego można znaleźć w [PyDAS](https://github.com/butla/pydas), który był moim eksperymentalnym projektem dla
-wprowadzania TDD (można tam zobaczyć wykorzystanie wszystkich technik z tego papieru).
-
-Thanks to this being session-scoped we don't have to spawn a new container for each test
-requiring it.
-This saves much time but may be looked down upon by people paranoid about test isolation
-But if Redis creators did their job well, then cleaning the data base in `db` should be enough
-to start each service test on a clean slate.
-
-`download_image_if_missing` function can also download the image needed to create the container, so people running
-the tests don't have to do that manually.
-They can simply run the tests and everything will set itself up.
-
-Let's get to the second base fixture - `our_service`.
+(TODO)
 
 ```python
 import mountepy
@@ -258,6 +278,9 @@ Robi to dzięki obiektowi zarządzającemu procesem mountebanka (który także j
 Impostor w tym przypadku jest bardzo prosty - sprawia, że POST na zadanym porcie i zadanej ścieżcę (np. "/some/resource")
 będzie zwracał 200 i pustą odpowiedź (poprawnie jeśli chodzi o HTTP byłoby, żeby zwracał 204, ale tak krótszy kod)
 
+Kod tego można znaleźć w [PyDAS](https://github.com/butla/pydas), który był moim eksperymentalnym projektem dla
+wprowadzania TDD (można tam zobaczyć wykorzystanie wszystkich technik z tego papieru).
+
 ### Remarks
 Widać, że ogólnie kod, który trzeba napisać nie jest duży - można te fixture'y przeklejać między projektami.
 Ale może kiedyś zrobię jakiś plugin do pytesta.
@@ -279,8 +302,6 @@ No, czyli testy wychodzą szybkie, a jak są szybkie, to ludzie się cieszą, fa
 jakiś zysk z posiadania testów.
 Jak by były za wolne to i tak ludzie nie chcieli by ich puszczać, więc cały wysiłek
 w nie włożony szedł by na marne.
-
-Te testy są framework-agnostic.
 
 Before ending the topic of service tests, a few words of warning.
 When a test fails in Pytest, all of it's output is printed in addition to the test stacktrace.
@@ -418,6 +439,8 @@ This is helpful in testing the unhappy path through your service.
 
 Bravado used In service tests: instead of “requests”
 
+(TODO comments in the code!)
+
 ```python
 def test_contract_service(swagger_spec, our_service):
     client = SwaggerClient.from_spec(
@@ -489,9 +512,9 @@ the time to cover:
 * operations automation (deployment, data recovery, service scaling, etc.)
 * monitoring of services and infrastructure
 
-## Sources (OK)
-Gary Bernhardt. [Fast Test, Slow Test](https://youtu.be/RAxiiRPHS9k)
-Sam Newman. Building Microservices. O'Reilly Media, Inc., February 10, 2015.
-Harry J.W. Percival. Test-Driven Development with Python. O'Reilly Media, Inc., June 19, 2014.
-martinfowler.com ["Microservice Testing"](http://martinfowler.com/articles/microservice-testing/)
-sdtimes.com ["Testing in production comes out of the shadows"](http://sdtimes.com/testing-production-comes-shadows/)
+## Sources
+* Gary Bernhardt. [Fast Test, Slow Test](https://youtu.be/RAxiiRPHS9k)
+* Sam Newman. Building Microservices. O'Reilly Media, Inc., February 10, 2015.
+* Harry J.W. Percival. Test-Driven Development with Python. O'Reilly Media, Inc., June 19, 2014.
+* martinfowler.com ["Microservice Testing"](http://martinfowler.com/articles/microservice-testing/)
+* sdtimes.com ["Testing in production comes out of the shadows"](http://sdtimes.com/testing-production-comes-shadows/)
