@@ -200,6 +200,7 @@ def redis_port():
     docker_client = docker.Client(version='auto')
     # Developers don't need to download required images themselves,
     # they only need to run the tests.
+    # Pulling an image will, of course, take same time and freeze the tests, but it's one-time.
     download_image_if_missing(docker_client)
     # Creates the container and waits for Redis to start accepting connections.
     container_id, redis_port = start_redis_container(docker_client)
@@ -209,8 +210,6 @@ def redis_port():
 
 ...and next, `our_service`:
 
-(TODO)
-
 ```python
 import mountepy
 
@@ -218,15 +217,25 @@ import mountepy
 def our_service(our_service_session, ext_service_impostor):
     return our_service
 
+# Creates (and later destroys) the process of the service under test.
+# The same as with "db" fixture, it's created once for the whole test session to save time.
+# The risk of tests influencing each other is present, but any improper behavior shows
+# that the application is not stateless (which it should be if follows the tenets
+# of 12-factor app), so the tests do their job of finding bugs.
+that we are writing and not something that the whole community depends on, like Redis.
 @pytest.yield_fixture(scope='session')
 def our_service_session():
+    # Starting a service proces with Mountepy requires a shell command in Popen format.
+    # The app will run in Waitress (an WSGI container, alternative to gunicorn, uwsgi, etc.).
     service_command = [
         WAITRESS_BIN_PATH,
         '--port', '{port}',
         '--call', 'data_acquisition.app:get_app']
 
+    # Spawning the service is straightforward. 
     service = mountepy.HttpService(
         service_command,
+        # Configuration is passed through environment variables.
         env={
             'SOME_CONFIG_VALUE': 'blabla',
             'PORT': '{port}',
@@ -238,13 +247,20 @@ def our_service_session():
 
 @pytest.yield_fixture(scope='function')
 def ext_service_impostor(mountebank):
+    # Impostor is created in Mountebank, the object able to communicate with it is returned.
+    # The configured behavior is simple in this case,
+    # it will respond to a POST on the given port and path (e.g. "/some/resource")
+    # with an empty response body and status code 204.
     impostor = mountebank.add_imposter_simple(
         port=EXT_SERV_STUB_PORT,
         path=EXT_SERV_PATH,
-        method='POST')
+        method='POST',
+        status_code=204)
     yield impostor
+    # After each tests the impostor is destroyed and all the requests it received are forgotten.
     impostor.destroy()
 
+# The Mountebank instance is also created once for the test suite.
 @pytest.yield_fixture(scope='session')
 def mountebank():
     mb = Mountebank()
@@ -253,83 +269,56 @@ def mountebank():
     mb.stop()
 ```
 
-`our_service` właściwie tylko przekazuje jeden fixture dalej `our_service_session`
-i wymusza stworzenie innego - `ext_service_impostor`
-I has function scope because `ext_service_impostor` has function scope.
-Fixtures can only be composed with those of the same or broader scope;
-it's not possible for a session scoped test be dependent on a function scoped test.
-BTW, there are more scopes, function and session are, respectively, the narrower and the broadest.
+Real code demonstrating the solutions presented in this article can be found in
+[PyDAS](https://github.com/butla/pydas), which was my guinea pig for microservice TDD experiments.
 
-`our_service_session` creates (and later destroys) the process of the service under test with Mountepy.
-This is straightforwad: you need to define the command line arguments for the service process
-like you would do when using Popen, and pass service configuration as environment variables (`env=`).
-The process being started here is Waitress (an WSGI container, alternative to gunicorn and uwsgi)
-running the web application.
+### Remarks about service tests
+Tests that start a few processes and send real HTTP requests (even through the loopback interface)
+tend to be orders of magnitude slower than (proper) unit tests.
+But in the case of PyDAS, which has 8 service tests, 3 integrated ones
+(almost like a unit test, but interact with a real Redis), and 40 unit tests,
+they take around 3 seconds (on Python 3.4).
+That's quite fast. In my opinion you can run tests that take that long after every few lines of
+written code.
 
-It also uses the same trick as `db` and `db_session` to save time.
-It's true that here the risk of tests infuencing each other is greater, because it concerns the software
-that we are writing and not something that the whole community depends on, like Redis.
-But any strange behavior of the tests may indicate that we didn't write the application to be stateless,
-which it should be when upholding the tenents of 12 factor app, so the tests will do their job of finding problems.
+Short test runs have the advantage of people actually running them.
+Developers can shy away from tests with runtime long enough to break their flow.
+And when tests are not run, the entire effort and good intentions put into them go to waste.
 
-`ext_service_impostor` nie jest bezpośrednio wykorzystywany, ale wywołuje kontrolowany efekt uboczny - ustawienie
-impostora (mocka usługi HTTP) w procesie mountebanka na czas trwania testu.
-Robi to dzięki obiektowi zarządzającemu procesem mountebanka (który także jest stworzony raz na całe testy).
-Impostor w tym przypadku jest bardzo prosty - sprawia, że POST na zadanym porcie i zadanej ścieżcę (np. "/some/resource")
-będzie zwracał 200 i pustą odpowiedź (poprawnie jeśli chodzi o HTTP byłoby, żeby zwracał 204, ale tak krótszy kod)
+A word of advice - even if the whole suit is quite fast (like 3 seconds), it's good to keep
+the longer tests (integrated and service ones) in a directory separate from unit tests,
+to still be able to sometimes run only the fastest subset
+(e.g. when checking really small tweaks one after another).
 
-Kod tego można znaleźć w [PyDAS](https://github.com/butla/pydas), który był moim eksperymentalnym projektem dla
-wprowadzania TDD (można tam zobaczyć wykorzystanie wszystkich technik z tego papieru).
-
-### Remarks
-Widać, że ogólnie kod, który trzeba napisać nie jest duży - można te fixture'y przeklejać między projektami.
-Ale może kiedyś zrobię jakiś plugin do pytesta.
-Jeśli ktoś z czytelników chce to zrobić, niech da mi znać.
-Co do dockera to może są już jakieś pluginy do pytesta, żeby obługiwać ściąganie i spawnowanie kontenerów.
-
-Może by się wydawać, że testy które odpalają kilka procesów i robią prawdziwe calle HTTP
-będą wolne, ale tak być nie musi.
-W przypadku PyDAS, gdzie było 8 testów serwisowych, 3 zintegrowane (wspomniane wcześniej, też używające prawdziwego Redisa)
-i 40 jednostkowych całość zabierała lekko poniżej 3 sekund (Python 3.4).
-Jedna rzecz, której nie wyjaśniłem to to, że po boocie kompa testy zajmą dłużej, ok 11 sekund.
-No i pierwsze odpalenie testów jeśli nie mamy image'u dockerowego zatrzyma się w momencie ściągania
-i zajmie tyle ile ściąganie.
-
-Pamiętajcie, że mimo wszystko dobrze mieć te testy w osobnych folderach, żeby móc robić bardzo szybkie zmiany
-i puszczać jedynie jednostkowe (ok 0.3 sekundy).
-
-No, czyli testy wychodzą szybkie, a jak są szybkie, to ludzie się cieszą, faktycznie je puszczają i jest
-jakiś zysk z posiadania testów.
-Jak by były za wolne to i tak ludzie nie chcieli by ich puszczać, więc cały wysiłek
-w nie włożony szedł by na marne.
-
-Before ending the topic of service tests, a few words of warning.
+There's also a small caveat about service test failures.
 When a test fails in Pytest, all of it's output is printed in addition to the test stacktrace.
 Service tests start a few processes, probably all of which print quite a few messages,
 so when they fail you'll be hit with a big wall of text.
 The upside is that it this text will most probably state somewhere what went wrong.
-
 Breaking a fixture sometimes happens when experimenting with and refactor the tests (which I encourage).
 This can yield even crazier logs that simply failed service tests.
 
 And the last thing - tests won't save you from all instances of human incompetence.
-When I created PyDAS using TDD I wanted to put it in our staging environment it kept crashing.
+When I created PyDAS using TDD and wanted to deploy it to our staging environment, it kept crashing.
 It turned out that I was ignoring Redis IP from configuration and had hardcoded localhost,
-which was fine with the tests.
+which was fine with the tests, but didn't at all do in a real environment.
 So be confident in your tests, but never a hudred percent.
 
 
 ## Enforcing TDD
-Żeby ludzie robili TDD
+Even if your team knows how to do TDD, they sometimes want to cut corners, which isn't good
+for anyone in the long run.
+Luckily, there are ways to keep them (and you, and me) in line.
 
-### Measuring code coverage
+### Measuring code coverage (TODO)
 A propos pokrycia w service testach:
 Możliwość liczenia pokrycia testami poza procesem się bardzo przydaje, żeby oszczędzić roboty jednocześnie trzymając wysoką jakość.
 Czasem bez sensu duplikować wolne testy w szybkich, skoro tylko wolne dają jakąś dozę pewności (testy redisa w pydasie). Ale jeśli wolne przechodzą, to umożliwia to posiadanie szybkich z jakimiś założeniami w mockach. 
 
+
 .coveragerc z PyDASa
 
-```
+```Ini
 [report]
 fail_under = 100
 [run]
