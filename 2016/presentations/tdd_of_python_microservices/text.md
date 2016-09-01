@@ -10,99 +10,12 @@ This article shows how to implement those tests (using the
 [Mountepy] (https://github.com/butla/mountepy) library I made, Pytest and Docker),
 how to enforce TDD (using multi-process code coverage) and good code style (with automated
 Pylint checks) within a team.
+
 Furthermore, contract tests based on Swagger interface definitions are introduced as a safeguard
 of the microservices' interoperability.
 
 The focus is on services communicating through HTTP, but some general principles will also apply to
 all web or network services.
-
-
-## Motivation
-### Why use microservices?
-There are numerous upsides for implementing a big distributed system as a network of microservices.
-
-Technology Heterogeneity
-With a system composed of multiple, collaborating services, we can decide to use different technologies inside each one. This allows us to pick the right tool for each job, rather than having to select a more standardized, one-size-fits-all approach that often ends up being the lowest common denominator. Developers like working in a technology they like and they have more opportunities for that with microservices
-
-Scaling
-With a large, monolithic service, we have to scale everything together. One small part of our overall system is constrained in performance, but if that behavior is locked up in a giant monolithic application, we have to handle scaling everything as a piece. With smaller services, we can just scale those services that need scaling, allowing us to run other parts of the system on smaller, less powerful hardware,
-
-Resilience
-A key concept in resilience engineering is the bulkhead. If one component of a system fails, but that failure doesn’t cascade, you can isolate the problem and the rest of the system can carry on working. Service boundaries become your obvious bulkheads. In a monolithic service, if the service fails, everything stops working. With a monolithic system, we can run on multiple machines to reduce our chance of failure, but with microservices, we can build systems that handle the total failure of services and degrade functionality accordingly.
-
-Ease of Deployment
-A one-line change to a million-line-long monolithic application requires the whole application to be deployed in order to release the change. That could be a large-impact, high-risk deployment. In practice, large-impact, high-risk deployments end up happening infrequently due to understandable fear. Unfortunately, this means that our changes build up and build up between releases, until the new version of our application hitting production has masses of changes. And the bigger the delta between releases, the higher the risk that we’ll get something wrong!
-With microservices, we can make a change to a single service and deploy it independently of the rest of the system. This allows us to get our code deployed faster. If a problem does occur, it can be isolated quickly to an individual service, making fast rollback easy to achieve. It also means we can get our new functionality out to customers faster. This is one of the main reasons why organizations like Amazon and Netflix use these architectures—to ensure they remove as many impediments as possible to getting software out the door.
-
-Organizational Alignment
-Many of us have experienced the problems associated with large teams and large codebases. These problems can be exacerbated when the team is distributed. We also know that smaller teams working on smaller codebases tend to be more productive.
-Microservices allow us to better align our architecture to our organization, helping us minimize the number of people working on any one codebase to hit the sweet spot of team size and productivity. We can also shift ownership of services between teams to try to keep people working on one service colocated.
-
-Optimizing for Replaceability (podłączyłbym pod technology heterogenity)
-If you work at a medium-size or bigger organization, chances are you are aware of some big, nasty legacy system sitting in the corner. The one no one wants to touch. The one that is vital to how your company runs, but that happens to be written in some odd Fortran variant and runs only on hardware that reached end of life 25 years ago. Why hasn’t it been replaced? You know why: it’s too big and risky a job.
-With our individual services being small in size, the cost to replace them with a better implementation, or even delete them altogether, is much easier to manage. How often have you deleted more than a hundred lines of code in a single day and not worried too much about it? With microservices often being of similar size, the barriers to rewriting or removing services entirely are very low.
-
-Powinny być zgodne z 12factor app, co też daje plusy.
-
-### Why NOT use microservices?
-Trzeba pamiętać, że jak każde inne rozwiązanie w IT microservicy nie są złotym młotkiem
-i trzeba wiedzieć kiedy je stosować a kiedy nie.
-And be mindful that hype (and microservices were getting a lot of it), even in the supposedly
-pragmatic and scientific world of software development, isn't always justified.
-When in doubt if you really need microservices instead of a traditional web application,
-start with the latter ("the monolith").
-You can always separate out individual services later on in a gradual, iterative manner
-as you gain insight into the problem domain and real-life workings of your system. 
-
-### Microservice challenges
-Of course, all the pros of the microservice approach come with some cons.
-The fast-paced environment in which the systems grows and changes in many places simultaneously
-can be hectic, stressful, and exhausting... if you're not following proper procedures.
-And I've experienced that first-hand.
-
-I was in a project in which it was decided to go all in on microservices from day one,
-without a picture of how exactly we are going to do things.
-And by doing things I mean developing interdependent application as a few rather independent teams.
-In this situation, many people working on many things at once sometimes
-(not as seldom as we would like) resulted in, sometimes severe, bugs.
-
-Jeszcze jeden czynnik nawarstwiający bugi.
-W dużym, rozwijającym się zespole często będzie trzeba albo wprowadzać nowych
-ludzi do dewelopmentu, albo przekazywać im jakiś kod, albo samemu się przerzucać.
-Jeśli jest się jednym z maintainerów i ma się coraz więcej spraw na głowie z racji
-przyspieszającego projektu (ja tak miałem), to może zacząć brakować czasu na opiekę
-nad utrzymywanym softem.
-Mniej czasu to mniej uwagi i większe niedbalstwo, a więc błędy.
-Im więcej błędów tym więcej czasu na debugowanie i jeszcze mniej czasu na resztę roboty
-(a terminy gonią). Widać błędne koło.
-Świezi ludzie też mogą nie być dobrymi programistami - kolejne źródło błędów.
-
-### TDD as a solution
-Jak soft często się psuje, to trzeba go testować.
-TDD powinno dać:
-* Confidence in face of changes.
-* Automation checks everything (też dla nowych).
-* Ward off bad design (też dla nowych).
-TDD Requirements:
-* Discipline (do tego trzeba przekonać ludzi)
-* Tools (to dam)
-
-Ale unit testy (na których ludzie czasem poprzestając przez to, że testy zintegrowane mogą być
-trudniejsze) to nie rozwiązanie.
-Szczególnie w przypadku Pythona, który nie sprawdza czy dobrze integrujemy moduły (czy używamy
-odpowiednich interfejsów).
-Nawet 100% pokrycia testowego, kiedy dysponujemy tylko unit testami nie pokaże, że aplikacja
-działa dobrze i faktycznie się uruchomi.
-A do tego będzie miała pełno bezsensownych testów przepchanych mockami, które tak naprawdę
-nie udowadniają poprawności.
-
-Trzeba testować całą aplikację, ale przy mikroserwisów one zależą na innych aplikacjach.
-(TODO przykładowy diagramik zależności).
-Czyli w praktycę trzeba by testować cały system?
-Takie całościowe testy są dość długie i ciężko przeprowadzać je dla wielu drobnych
-zmian (które ludzie robią) jednocześnie i niezależnie od siebie.
-
-Rozwiązanie tych problemów przedstawiam w artykule.
 
 
 ## Service tests
@@ -161,24 +74,6 @@ production-like (or the actual production) environment.
 
 Nevertheless, even inroducing TDD with unit and service tests alone will greatly improve
 your development process, so let's move on.
-
-----------------------------------------------
-
-Jednostkowe to wiadomo, testują jednostkę (klasę, funkcję).
-It's even more important in a dynamic language like Python in which we get almost no static
-syntax checking, and sometimes even glaring code mistakes can slip by.
-
-Zintegrowane to taki trochę unit, ale używający prawdziwych zasobów (jak serwicowe).
-Np. testy klasy repozytorium gadającego z prawdziwą bazą danych.
-
-End-to-end testują całą zdeployowaną platformę tak, jakby korzystał z niej docelowy klient
-(można nawet testować na produkcji).
-
-Eksploracyjne już nie są zautomatyzowane (wszystkie inne muszą być!) i polegają na ludzkiej
-ingenuity, żeby znaleźć luki w systemie.
-Wszystkie te są bardzo ważne, ale nie mam czasu bardziej się w nie zagłębiać.
-
-------------------------------------------------
 
 ### Necessary tools
 To have local service tests, the service's runtime dependencies must somehow be satisfied.
