@@ -19,42 +19,28 @@ all web or network services.
 
 
 ## Service tests
-### Their place in TDD
+### Their place in TDD and microservice development
 To have TDD and thus a maintainable microservice project we need tests that can validate
-the entirety of a single application - the "service tests".
-This term is used in "Building Microservices", but Harry Percival calls them (although in the
-context of traditional, monolithic web applications) "functional tests" in
-"Test-Driven Development with Python".
-Those functional tests are essential for implementing the "real TDD", that is the "double loop"
-or "outside-in" TDD (shown on diagram below).
+the entirety of a single application.
+These tests are essential for implementing the "real TDD", that is the "double loop"
+or "outside-in" TDD (shown on the diagram below, taken from "Test-Driven Development with Python).
+The term used to describe them can be "service tests", which I prefer, "functional tests"
+or "component tests".
 
 ![](images/tdd_cycle.png "TDD cycle")
 
-This image (taken from Percival's book) succintly explains the test-driven development process.
+Service tests are necessary to check if units of code work together as planned,
+if it won't just crash when starting in a real environment.
+They can do that because they run against a process with no special test flags,
+no fake database clients, etc.
+The application under test should have no idea that it's not in a "real" environment.
 
-Adding each new application feature should start with a functional (service) test.
-This kind of verification is necessary to check if units of code work together as planned.
-It's important to remember that as service tests take longer to run and are more complex
-than unit tests, they should only be used to cover a few critital code paths.
-Full validation of the application's logic (code coverage) should be achieved with unit tests
-(but as shown later on, unit tests don't have to duplicate the same cases that are 
-covered by service tests).
-
-### Their place in microservice tests
-Service tests are the thing that says whether an application will not just crash on start
-after you deploy it.
-They can do that because they examine a "living" and "authentic" process of an application.
-Authenticity in this case means running the process like it would run in a production
-environment, with no special test flags, no fake data base clients, etc.
-The application under test should "have no idea" that it's not in a "real" environment.
-
-With these properties, a test suite can run locally, in isolation from the production (or staging)
-environment.
-It can be launched on a development or a CI (Continuous Integration) machine.
-This allows for parallel development of multiple microservices by multiple teams
+It's also important to remember that as they take longer to run and are more complex
+than unit tests, they should only be used to cover a few critical code paths.
+Full validation of the application's logic (code coverage) should be achieved with unit tests.
 
 In his presentation about testing microservices, Martin Fowler places service tests
-(which he calls out-of-process component tests) in the middle of the tests pyramid.
+in the middle of the tests pyramid.
 
 ![](images/test_pyramid.png "Microservice test pyramid")
 
@@ -66,39 +52,31 @@ The general idea is that the higher you get in the pyramid, the tests:
 
 All of those kinds of tests are important for a microservice-based system, but due to limited
 space I can't get into detail about all of them.
-Anyhow, if all services have a good suit of unit and service tests, then each should behave
-like we wanted it to, so there's a good chance that the whole system will work fine...
-But in reality we still need end-to-end tests to check for unexpected errors that sometimes
-happen (so they surely will eventually happen) when integrating the entire platform in a
-production-like (or the actual production) environment.
-
-Nevertheless, even inroducing TDD with unit and service tests alone will greatly improve
-your development process, so let's move on.
 
 ### Necessary tools
-To have local service tests, the service's runtime dependencies must somehow be satisfied.
+To have local service tests that can run in isolation from the production or staging environment
+(allowing for parallel development f multiple microservices), the service's run-time dependencies must somehow be satisfied.
 Assuming we're building HTTP microservices, the dependencies most probably are:
 
-* data bases
+* databases
 * other microservices (or any other HTTP applications)
 
-#### Handling data bases
+#### Handling databases
 *Naively* - just by installing on the machine running the tests.
 This is tiresome and unwieldy.
 Development of every microservice would either require long manual setup or
 maintaining installation scripts (what can also require a lot of work).
 Also if someone works on a few projects they'll get a lot of junk on their OS.
 
-*Verified Fakes* are test doubles of some system (let's say a data base) that are created
+*Verified Fakes* are test doubles of some system (let's say a database) that are created
 by the maintainers (or other contributors) of said system.
 They are also tested (verified) to ensure that they behave like the real version during tests.
 They can make tests faster and easier to set up, but require effort to develop, and since time
 is a precious resource, are rarely seen in the real world.
 
-Using *Docker* is my preferred approach. With it almost every application can be downloaded as an
+Using *Docker* is my preferred approach. With it, almost every application can be downloaded as an
 image and run as a container in a uniform way.
 Without messy or convoluted installation processes.
-Although a while ago it was only available for linux, now it starts to support Windows and Mac.
 
 #### Handling other microservices
 The problem here is that if we'd want to simply set up the other services that are required by the 
@@ -112,7 +90,7 @@ There are a few solutions (mock servers) I came across that can be configured to
 HTTP services on selected ports.
 The imitation is about responding to a defined HTTP call, e.g. POST on path /some/path with body
 containing the string "potato", with a specific response, e.g status code 201
-and body containing string "making potateos".
+and a body containing string "making potatoes".
 Those mock servers are:
 
 * *WireMock* is a Java veteran that can run as a standalone application and can be configured with
@@ -129,13 +107,13 @@ To use Mountebank in tests comfortably and not be required to start it manually 
 tests, I created Mountepy.
 It's a library that gracefully handles starting and stopping Mountebank's process.
 It also handles configuration of HTTP service imitations, which Mountebank refers to as "imposters".
-Since Mountepy required implementation of management logic for a HTTP service process
+Since Mountepy required implementation of management logic for an HTTP service process
 (which Mountebank is),
 it also has the feature of controlling the process of the application under tests,
 thus providing a complete solution for framework-agnostic service tests.
 
 ### Test anatomy
-Because of its conciseness and due to its powerfull and composable fixture system,
+Because of its conciseness and due to its powerful and composable fixture system,
 I chose Pytest.
 An example service test created with it can look like any other plain and simple unit test:
 
@@ -143,7 +121,7 @@ An example service test created with it can look like any other plain and simple
 # Fixtures are test resource objects that are injected into the test by the framework.
 # This test is parameterized with two of them:
 # "our_service", a Mountepy handler of the service under test
-# and "db", a Redis (but it could be any other data base) client.
+# and "db", a Redis (but it could be any other database) client.
 def test_something(our_service, db):
     db.put(TEST_DB_ENTRY)
     response = requests.get(
@@ -152,12 +130,12 @@ def test_something(our_service, db):
     assert response.status_code == 200
 ```
 
-It's quite clear what's happening in the test: some test data is put in the data base,
+It's quite clear what's happening in the test: some test data is put in the database,
 the service is called through HTTP, and finally, there's an assertion on the response.
 Such straightforward testing is possible thanks to the power of Pytest fixtures.
 Not only can they parameterize tests, but also other fixtures.
 The two top-level ones presented above are themselves composed of others
-(as shown on the diagram below) in order to fine-tune their behavior to our needs.
+(as shown in the diagram below) in order to fine-tune their behavior to our needs.
 
 ![](images/fixtures.svg "Fixture composition")
 
@@ -193,14 +171,14 @@ def db_session(redis_port):
 # Thanks to being session-scoped it doesn't need to spawn a new container for each test,
 # thus cutting down the test time.
 # This practice may be looked down upon by people paranoid about test isolation,
-# but if Redis creators did their job well, cleaning the data base in "db" should be enough
+# but if Redis creators did their job well, cleaning the database in "db" should be enough
 # to start each service test on a clean slate.
 @pytest.yield_fixture(scope='session')
 def redis_port():
     docker_client = docker.Client(version='auto')
     # Developers don't need to download required images themselves,
     # they only need to run the tests.
-    # Pulling an image will, of course, take same time and freeze the tests, but it's one-time.
+    # Pulling an image will, of course, takes some time and freeze the tests, but it's one-time.
     download_image_if_missing(docker_client)
     # Creates the container and waits for Redis to start accepting connections.
     container_id, redis_port = start_redis_container(docker_client)
@@ -225,8 +203,8 @@ def our_service(our_service_session, ext_service_impostor):
 that we are writing and not something that the whole community depends on, like Redis.
 @pytest.yield_fixture(scope='session')
 def our_service_session():
-    # Starting a service proces with Mountepy requires a shell command in Popen format.
-    # The app will run in Waitress (an WSGI container, alternative to gunicorn, uwsgi, etc.).
+    # Starting a service process with Mountepy requires a shell command in Popen format.
+    # The app will run in Waitress (a WSGI container, an alternative to gunicorn, uWSGI, etc.).
     service_command = [
         WAITRESS_BIN_PATH,
         '--port', '{port}',
@@ -278,11 +256,11 @@ tend to be orders of magnitude slower than (proper) unit tests.
 But in the case of PyDAS, which has 8 service tests, 3 integrated ones
 (almost like a unit test, but interact with a real Redis), and 40 unit tests,
 they take around 3 seconds (on Python 3.4).
-That's quite fast. In my opinion you can run tests that take that long after every few lines of
+That's quite fast. In my opinion, you can run tests that take that long after every few lines of
 written code.
 
 Short test runs have the advantage of people actually running them.
-Developers can shy away from tests with runtime long enough to break their flow.
+Developers can shy away from tests with run-time long enough to break their flow.
 And when tests are not run, the entire effort and good intentions put into them go to waste.
 
 A word of advice - even if the whole suit is quite fast (like 3 seconds), it's good to keep
@@ -291,7 +269,7 @@ to still be able to sometimes run only the fastest subset
 (e.g. when checking really small tweaks one after another).
 
 There's also a small caveat about service test failures.
-When a test fails in Pytest, all of it's output is printed in addition to the test stacktrace.
+When a test fails in Pytest, all of its output is printed in addition to the test stack trace.
 Service tests start a few processes, probably all of which print quite a few messages,
 so when they fail you'll be hit with a big wall of text.
 The upside is that it this text will most probably state somewhere what went wrong.
@@ -300,9 +278,9 @@ This can yield even crazier logs that simply failed service tests.
 
 And the last thing - tests won't save you from all instances of human incompetence.
 When I created PyDAS using TDD and wanted to deploy it to our staging environment, it kept crashing.
-It turned out that I was ignoring Redis IP from configuration and had hardcoded localhost,
+It turned out that I was ignoring Redis IP from configuration and had hard-coded localhost,
 which was fine with the tests, but didn't at all do in a real environment.
-So be confident in your tests, but never a hudred percent.
+So be confident in your tests, but never a hundred percent.
 
 
 ## Enforcing TDD
@@ -368,7 +346,7 @@ or adding a small "if" in some REST controller can accidentally:
 * change the shape (schema) of the data returned by the service.
 
 Those changes breach the contract the service has with the outside world,
-and can cause bugs in a microservice system, so precausions are necessary.
+and can cause bugs in a microservice system, so precautions are necessary.
 They come in the form of contract tests.
 
 ### Swagger
@@ -409,8 +387,8 @@ It defines a HTTP endpoint on path /person/{id} on the service's location
 (e.g. http://example.com/person/zablarg13).
 This endpoint will respond to a GET request.
 It has one parameter, `id`, that is passed in the path and is a string.
-The endpoint can respond with a message with status code 200 contaning the representation of
-a person's data - and object with their name as string and the information if they are single.
+The endpoint can respond with a message with status code 200 containing the representation of
+a person's data - and object with their name as a string and the information if they are single (boolean).
 
 ### Contract/service tests
 [Bravado](https://github.com/Yelp/bravado) is a library that can dynamically create client
@@ -450,7 +428,7 @@ def test_contract_service(swagger_spec, our_service):
     resp_object = client.v1.submitOperation(
         body={'name': 'make_sandwich', 'repeats': 3},
         worker='Mom',
-        _request_options=requet_options).result()
+        _request_options=request_options).result()
 
     assert resp_object.status == 'whatever'
 ```
