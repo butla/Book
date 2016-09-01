@@ -445,6 +445,8 @@ def test_contract_service(swagger_spec, our_service):
         'headers': {'authorization': A_VALID_TOKEN},
     }
 
+    # Running and validating the request with a body, a path parameter "worker"
+    # and with an authorization header containing a valid security token.
     resp_object = client.v1.submitOperation(
         body={'name': 'make_sandwich', 'repeats': 3},
         worker='Mom',
@@ -454,10 +456,13 @@ def test_contract_service(swagger_spec, our_service):
 ```
 
 ### Contract/unit tests
-In unit tests (they take less time then service ones): https://github.com/butla/bravado-falcon
-Zrobiłem takiego toola.
-Dzięki architekturze Bravado każdy może zrobić takiego toola do swojego frameworka,
-bo raczej frameworki mają swoje sposoby na testowanie udawanego HTTP.
+It's unfeasible to cover the entire contract with service/contract tests,
+because they take too long.
+It would be great to give unit tests that simulate HTTP calls
+(I think all HTTP/REST frameworks have a facility to do that) the Bravado's validation abilities.
+That's what I did for [Falcon](https://falconframework.org/) with
+[bravado-falcon](https://github.com/butla/bravado-falcon), thanks to Bravado's extensibility.
+Such integration can probably be easily developed for other web frameworks.
 
 ```python
 from bravado.client import SwaggerClient
@@ -465,7 +470,9 @@ from bravado_falcon import FalconHttpClient
 import yaml
 import tests # our tests package
 
+# swagger_spec is the same fixture as in the contract/service test.
 def test_contract_unit(swagger_spec):
+    # Client doesn't need an URL now, but it needs the alternative HTTP client.
     client = SwaggerClient.from_spec(
         swagger_spec,
         http_client=FalconHttpClient(tests.service.api))
@@ -475,34 +482,17 @@ def test_contract_unit(swagger_spec):
         worker='Mom').result()
 
     assert resp_object.status == 'whatever'
-
-@pytest.fixture()
-def swagger_spec():
-    with open('api_spec.yaml') as spec_file:
-        return yaml.load(spec_file)
 ```
 
-Now, with a little effort (test client of your framework can be switched for bravado one)
-also unit tests can double as contract tests.
-With that you can achieve full coverage of your cotract without making the test suit obnoxiously long.
-
-Nie trzeba duplikować tego samego testu w unit i service testach, wręcz jest to zbędne,
-ale to tylko dla przykładu.
-
 ## Conclusion
-Z tymi narzędziami powinniście sobie dobrze poradzić w rozwijaniu niezależnych serwisów,
-projekt powinien iść dobrze i wszystkie teamy powinny móc działać niezależnie nie psując sobie nic nawzajem.
-Ale to jeszcze nie zapewnia sukcesu całemu projektowi.
-
-There are more important factors of a success with microservice project that I didn't have
-the time to cover:
-* end-to-end tests - 
-  That's why they are in the Fowler's testing pyramid.
-* performance tests - trzeba trzymać jakiś poziom przepustowości, żeby obsłużyć klientów (to jedno),
-  a drugie, że niektóre zmiany mogą drastycznie zmniejszyć performance - trzeba tego pilnować.
-  zmiany mogą nieoczeki
-* operations automation (deployment, data recovery, service scaling, etc.)
-* monitoring of services and infrastructure
+Solutions presented here will help keep you sane when working on a microservice-based system,
+but are far from being everything you need to know to about microservice development.
+Further things to consider are:
+* end-to-end tests,
+* performance tests,
+* operations automation (deployment, data recovery, service scaling, etc.),
+* monitoring of services and infrastructure,
+* and more.
 
 ## Sources
 * Gary Bernhardt. [Fast Test, Slow Test](https://youtu.be/RAxiiRPHS9k)
